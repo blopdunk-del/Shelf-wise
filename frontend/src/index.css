@@ -1,0 +1,87 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap');
+
+body {
+    margin: 0;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background: #f6f4ee;
+    color: #1a201e;
+}
+
+code, .mono {
+    font-family: 'DM Mono', monospace;
+}
+
+@layer base {
+    :root {
+        /* Pharmacy-friendly: cream background, deep teal primary, terracotta accent */
+        --background: 42 33% 95%;
+        --foreground: 165 25% 10%;
+        --card: 0 0% 100%;
+        --card-foreground: 165 25% 10%;
+        --popover: 0 0% 100%;
+        --popover-foreground: 165 25% 10%;
+        --primary: 168 62% 23%;          /* Deep teal */
+        --primary-foreground: 42 50% 96%;
+        --secondary: 42 28% 90%;
+        --secondary-foreground: 165 25% 12%;
+        --muted: 42 20% 92%;
+        --muted-foreground: 165 12% 35%;
+        --accent: 18 65% 55%;            /* Warm terracotta */
+        --accent-foreground: 42 50% 96%;
+        --destructive: 358 65% 48%;
+        --destructive-foreground: 42 50% 96%;
+        --border: 42 18% 84%;
+        --input: 42 20% 88%;
+        --ring: 168 62% 23%;
+        --chart-1: 168 62% 30%;
+        --chart-2: 18 65% 55%;
+        --chart-3: 42 60% 50%;
+        --chart-4: 358 55% 50%;
+        --chart-5: 195 50% 40%;
+        --radius: 0.75rem;
+    }
+}
+
+@layer base {
+    * { @apply border-border; }
+    body { @apply bg-background text-foreground; }
+
+    h1, h2, h3, h4 { font-weight: 700; letter-spacing: -0.01em; }
+}
+
+/* PWA-friendly tap targets */
+@layer utilities {
+    .tap-lg { min-height: 56px; }
+    .tap-xl { min-height: 64px; }
+
+    .surface-card {
+        background: #ffffff;
+        border: 1px solid hsl(var(--border));
+        border-radius: var(--radius);
+    }
+    .surface-cream {
+        background: #faf7ee;
+        border: 1px solid hsl(var(--border));
+        border-radius: var(--radius);
+    }
+}
+
+/* Mobile bottom-nav safe spacing */
+.has-bottom-nav { padding-bottom: 88px; }
+
+/* Subtle entrance for cards */
+.fade-in-up { animation: fadeUp 320ms ease-out both; }
+@keyframes fadeUp {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: hsl(168 30% 75%); border-radius: 8px; }
