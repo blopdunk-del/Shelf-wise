@@ -48,6 +48,27 @@ Mobile-first web app (PWA) for retailers to track stock from purchase receipts a
 - Iter 1: Backend 15/15 + Frontend = 100%
 - Iter 2: Backend 18/18 + Frontend = 100%
 - Iter 3: Backend 22/22 + Frontend = 100%
+- Iter 4: Backend 27/27 + Frontend = 100%
+
+### Iter 4 (2026-04-28) — Real PWA: Service Worker + Web Push + Install prompt
+- **Service worker** (`/sw.js`): caches app shell, network-first for navigations, listens for `push` + `notificationclick`
+- **Manifest** with 192×192 and 512×512 PNG icons (auto-generated, brand-colored), `display: standalone`, install prompt eligible
+- **VAPID keys** generated and added to `.env` (`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY_PEM`, `VAPID_SUBJECT`)
+- **Backend push endpoints** (4 new): `GET /api/push/vapid-public-key`, `POST /api/push/subscribe`, `DELETE /api/push/unsubscribe`, `POST /api/push/test`
+- **Push subscriptions** stored in `push_subscriptions` MongoDB collection (upsert by endpoint, dedupes per-device)
+- **Auto-cleanup**: failed pushes returning 410/404 auto-remove expired subscriptions
+- **Alert loop integration**: when expiry/renewal alerts fire, push notifications sent in parallel (best-effort)
+- **`<PwaBanners />`** UI on Dashboard: prompts user to enable notifications + offers "Install app" when `beforeinstallprompt` fires; can dismiss
+- **`pywebpush==2.3.0`** added to requirements.txt
+
+## Backlog
+- P1: Replace native date inputs with shadcn Calendar+Popover (UX polish)
+- P2: integrate Razorpay Subscriptions for true UPI Autopay (zero-touch renewals)
+- P2: Wrap pywebpush sync I/O in `asyncio.to_thread()` once subscriber count grows
+- P2: PDF receipt OCR
+- P2: CSV export of inventory
+- P3: Multi-store / staff accounts
+- P3: Split server.py into routers
 
 ## Backlog
 - P1: Configure real SMTP (`SMTP_HOST/USER/PASSWORD`) → real email delivery

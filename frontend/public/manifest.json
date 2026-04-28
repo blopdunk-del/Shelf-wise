@@ -3,11 +3,9 @@
   "name": "ShelfWise — Stock & Expiry Tracker",
   "description": "Track stock and expiry for any retail business. Scan receipts, get alerts before items expire.",
   "icons": [
-    {
-      "src": "favicon.ico",
-      "sizes": "64x64 32x32 24x24 16x16",
-      "type": "image/x-icon"
-    }
+    { "src": "favicon.ico", "sizes": "64x64 32x32 24x24 16x16", "type": "image/x-icon" },
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
   ],
   "start_url": "/",
   "scope": "/",
