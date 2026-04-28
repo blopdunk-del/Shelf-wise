@@ -103,13 +103,9 @@ export default function Membership() {
                   <img
                     data-testid="upi-qr-image"
                     src={bank.upi_qr_url}
-                    alt={`UPI QR for ${bank.account_name}`}
+                    alt="UPI QR"
                     className="w-56 h-56 object-contain rounded-lg"
                   />
-                </div>
-                <div className="text-center">
-                  <div className="font-semibold">{bank.account_name}</div>
-                  <div className="text-xs mono text-muted-foreground">{bank.upi_id}</div>
                 </div>
               </div>
             )}
@@ -125,13 +121,6 @@ export default function Membership() {
             )}
 
             <div className="surface-cream p-3 space-y-1.5 text-xs">
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">UPI ID</span>
-                <div className="flex items-center gap-1">
-                  <span className="mono font-semibold">{bank.upi_id}</span>
-                  <Button data-testid="copy-upi" size="icon" variant="ghost" className="h-6 w-6" onClick={()=>copy(bank.upi_id, "UPI")}><Copy className="w-3 h-3" /></Button>
-                </div>
-              </div>
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">Amount</span>
                 <span className="font-semibold">₹{bank.amount}</span>
