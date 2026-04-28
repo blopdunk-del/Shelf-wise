@@ -9,9 +9,6 @@ import base64
 import json
 import re
 import asyncio
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr, ConfigDict
 from typing import List, Optional
@@ -538,27 +535,7 @@ async def admin_stats(admin: dict = Depends(require_admin)):
     }
 
 
-# =================== EMAIL / ALERTS BACKGROUND ===================
-def send_email_sync(to: str, subject: str, body: str) -> bool:
-    host = os.environ.get("SMTP_HOST", "")
-    if not host:
-        logger.info(f"[EMAIL MOCK] To={to} | {subject}")
-        return False
-    try:
-        msg = MIMEMultipart()
-        msg["From"] = os.environ.get("SMTP_FROM", "noreply@medstore.com")
-        msg["To"] = to
-        msg["Subject"] = subject
-        msg.attach(MIMEText(body, "plain"))
-        with smtplib.SMTP(host, int(os.environ.get("SMTP_PORT", "587"))) as s:
-            s.starttls()
-            s.login(os.environ.get("SMTP_USER", ""), os.environ.get("SMTP_PASSWORD", ""))
-            s.sendmail(msg["From"], [to], msg.as_string())
-        return True
-    except Exception as e:
-        logger.warning(f"Email send failed: {e}")
-        return False
-
+# =================== ALERTS BACKGROUND (in-app only) ===================
 def _summarize_items(items):
     """Build a brief text summary list (bullet lines) for emails / logs."""
     out = []
@@ -603,14 +580,6 @@ async def expiry_alert_loop():
                             "expiry_date": m["expiry_date"],
                         } for m in items
                     ]
-                    lines = _summarize_items(items)
-                    body = (
-                        f"Hi {u.get('name', '')},\n\n"
-                        f"You have {len(items)} item(s) expiring in the next 10 days:\n\n"
-                        + "\n".join(lines) +
-                        "\n\nLog in to ShelfWise to manage your stock.\n\n— ShelfWise"
-                    )
-                    send_email_sync(u["email"], f"[ShelfWise] {len(items)} item(s) expiring soon", body)
                     await db.alerts.insert_one({
                         "id": str(uuid.uuid4()),
                         "user_id": u["id"],
@@ -641,16 +610,6 @@ async def expiry_alert_loop():
                             except Exception:
                                 last_dt = None
                         if not last_dt or (now - last_dt) >= timedelta(hours=20):
-                            body = (
-                                f"Hi {u.get('name', '')},\n\n"
-                                f"Your ShelfWise Premium expires in {days_left} day(s) "
-                                f"(on {exp_dt.date().isoformat()}).\n\n"
-                                f"Renew with ₹600 to keep your account active:\n"
-                                f"UPI: {os.environ.get('BANK_UPI', '')} ({os.environ.get('BANK_ACCOUNT_NAME', '')})\n\n"
-                                f"After paying, log in and submit your UTR — premium will activate within 30 minutes "
-                                f"of admin verification.\n\n— ShelfWise"
-                            )
-                            send_email_sync(u["email"], f"[ShelfWise] Premium expires in {days_left}d — renew now", body)
                             await db.alerts.insert_one({
                                 "id": str(uuid.uuid4()),
                                 "user_id": u["id"],
