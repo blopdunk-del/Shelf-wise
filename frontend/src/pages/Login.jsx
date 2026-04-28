@@ -6,7 +6,7 @@ import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Card, CardContent } from "../components/ui/card";
 import { toast } from "sonner";
-import { Pill } from "lucide-react";
+import { Boxes } from "lucide-react";
 
 export default function Login() {
   const { login } = useAuth();
@@ -34,11 +34,11 @@ export default function Login() {
       <div className="w-full max-w-md">
         <div className="flex items-center gap-3 mb-8">
           <div className="w-12 h-12 rounded-xl bg-primary text-primary-foreground flex items-center justify-center">
-            <Pill className="w-6 h-6" />
+            <Boxes className="w-6 h-6" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold">MedStore</h1>
-            <p className="text-sm text-muted-foreground">Track stock & expiry the easy way</p>
+            <h1 className="text-2xl font-bold">ShelfWise</h1>
+            <p className="text-sm text-muted-foreground">Track every item in your store</p>
           </div>
         </div>
 
@@ -86,7 +86,7 @@ export default function Login() {
 
         <div className="mt-6 surface-cream p-4 text-xs text-muted-foreground">
           <div className="font-semibold text-foreground mb-1">Admin demo</div>
-          admin@medstore.com / Admin@12345
+          admin@medstore.com / Admin@12345 (auto-seeded)
         </div>
       </div>
     </div>

@@ -4,7 +4,7 @@ import { api } from "../lib/api";
 import { useAuth } from "../contexts/AuthContext";
 import { Card, CardContent } from "../components/ui/card";
 import { Button } from "../components/ui/button";
-import { AlertTriangle, Calendar, Package, Plus, ScanLine, BadgeCheck } from "lucide-react";
+import { AlertTriangle, Calendar, Package, Plus, ScanLine, BadgeCheck, Bell } from "lucide-react";
 import { toast } from "sonner";
 
 const StatCard = ({ icon: Icon, label, value, accent, testid }) => (
@@ -23,38 +23,40 @@ const StatCard = ({ icon: Icon, label, value, accent, testid }) => (
   </Card>
 );
 
+const daysUntil = (d) => {
+  const today = new Date();
+  today.setHours(0,0,0,0);
+  return Math.round((new Date(d) - today) / (1000*60*60*24));
+};
+
 export default function Dashboard() {
   const { user } = useAuth();
   const [stats, setStats] = useState(null);
   const [expiring, setExpiring] = useState([]);
+  const [recent, setRecent] = useState([]);
 
   const load = async () => {
     try {
-      const [s, e] = await Promise.all([
+      const [s, e, a] = await Promise.all([
         api.get("/dashboard/stats"),
         api.get("/medicines", { params: { filter: "expiring" } }),
+        api.get("/alerts/recent"),
       ]);
       setStats(s.data);
       setExpiring(e.data);
-    } catch (err) {
+      setRecent(a.data);
+    } catch {
       toast.error("Failed to load dashboard");
     }
   };
 
   useEffect(() => { load(); }, []);
 
-  const daysUntil = (d) => {
-    const today = new Date();
-    today.setHours(0,0,0,0);
-    const exp = new Date(d);
-    return Math.round((exp - today) / (1000*60*60*24));
-  };
-
   return (
     <div className="space-y-6" data-testid="dashboard-page">
       <div>
         <h1 className="text-2xl sm:text-3xl font-bold">Hello, {user?.name?.split(" ")[0]} 👋</h1>
-        <p className="text-sm text-muted-foreground">{user?.shop_name || "Your medical store at a glance"}</p>
+        <p className="text-sm text-muted-foreground">{user?.shop_name || "Your store at a glance"}</p>
       </div>
 
       {!user?.is_premium && (
@@ -63,7 +65,7 @@ export default function Dashboard() {
             <BadgeCheck className="w-5 h-5 text-accent mt-0.5" />
             <div className="flex-1">
               <div className="font-semibold text-sm">You're on the Free plan</div>
-              <div className="text-xs text-muted-foreground">Limited to 10 medicines. Upgrade for unlimited entries + priority alerts.</div>
+              <div className="text-xs text-muted-foreground">Limited to 10 items. Upgrade for unlimited entries + priority alerts.</div>
             </div>
             <Link to="/membership"><Button data-testid="upgrade-btn" size="sm" className="tap-lg">Upgrade</Button></Link>
           </CardContent>
@@ -99,7 +101,7 @@ export default function Dashboard() {
             <Link to="/inventory?filter=expiring" className="text-xs text-primary font-semibold">View all</Link>
           </div>
           {expiring.length === 0 ? (
-            <div className="text-sm text-muted-foreground py-6 text-center">No medicines expiring soon. 🎉</div>
+            <div className="text-sm text-muted-foreground py-6 text-center">No items expiring soon. 🎉</div>
           ) : (
             <ul className="divide-y divide-border" data-testid="expiring-list">
               {expiring.slice(0, 6).map((m) => {
@@ -118,6 +120,43 @@ export default function Dashboard() {
                   </li>
                 );
               })}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="surface-card">
+        <CardContent className="p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-base md:text-lg font-bold flex items-center gap-2"><Bell className="w-4 h-4" />Recent notifications</h2>
+            <span className="text-xs text-muted-foreground">{recent.length} sent</span>
+          </div>
+          {recent.length === 0 ? (
+            <div className="text-sm text-muted-foreground py-6 text-center">No notifications yet. We'll alert you 10 days before any item expires.</div>
+          ) : (
+            <ul className="space-y-3" data-testid="recent-alerts">
+              {recent.slice(0, 5).map((a) => (
+                <li key={a.id} data-testid={`alert-${a.id}`} className="surface-cream p-3 rounded-lg">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-sm font-semibold">{a.count} item(s) expiring soon</div>
+                    <div className="text-xs text-muted-foreground">{new Date(a.sent_at).toLocaleString()}</div>
+                  </div>
+                  {a.items && a.items.length > 0 && (
+                    <ul className="space-y-1">
+                      {a.items.slice(0, 4).map((it, i) => {
+                        const d = daysUntil(it.expiry_date);
+                        return (
+                          <li key={i} className="text-xs flex items-center justify-between gap-2">
+                            <span className="truncate"><span className="font-semibold">{it.name}</span> <span className="mono text-muted-foreground">· {it.batch_number} · Qty {it.quantity}</span></span>
+                            <span className={`shrink-0 font-semibold ${d < 0 ? "text-destructive" : "text-accent"}`}>{it.expiry_date}{d>=0?` (${d}d)`:" (expired)"}</span>
+                          </li>
+                        );
+                      })}
+                      {a.items.length > 4 && <li className="text-xs text-muted-foreground">+ {a.items.length - 4} more</li>}
+                    </ul>
+                  )}
+                </li>
+              ))}
             </ul>
           )}
         </CardContent>

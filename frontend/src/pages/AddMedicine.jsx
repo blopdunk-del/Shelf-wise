@@ -33,7 +33,7 @@ export default function AddMedicine() {
     setBusy(true);
     try {
       await api.post("/medicines", { ...form, quantity: parseInt(form.quantity, 10) });
-      toast.success("Medicine added");
+      toast.success("Item added");
       navigate("/inventory");
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Failed to add");
@@ -44,13 +44,13 @@ export default function AddMedicine() {
 
   return (
     <div className="space-y-4" data-testid="add-page">
-      <h1 className="text-2xl font-bold">Add medicine</h1>
+      <h1 className="text-2xl font-bold">Add item</h1>
       <Card className="surface-card">
         <CardContent className="p-5">
           <form onSubmit={submit} className="space-y-4">
             <div>
-              <Label>Medicine name *</Label>
-              <Input data-testid="add-name" value={form.name} onChange={update("name")} required className="tap-lg mt-1" placeholder="e.g. Paracetamol 500mg" />
+              <Label>Item name *</Label>
+              <Input data-testid="add-name" value={form.name} onChange={update("name")} required className="tap-lg mt-1" placeholder="e.g. Paracetamol 500mg / Amul Milk 1L / Lipstick" />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -77,7 +77,7 @@ export default function AddMedicine() {
               <Textarea data-testid="add-notes" value={form.notes} onChange={update("notes")} className="mt-1" rows={2} />
             </div>
             <Button data-testid="add-submit" type="submit" disabled={busy} className="w-full tap-xl text-base">
-              {busy ? "Adding..." : "Save medicine"}
+              {busy ? "Adding..." : "Save item"}
             </Button>
           </form>
         </CardContent>

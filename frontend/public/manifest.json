@@ -1,6 +1,6 @@
 {
-  "short_name": "MedStore",
-  "name": "MedStore - Medical Inventory",
+  "short_name": "ShelfWise",
+  "name": "ShelfWise — Stock & Expiry Tracker",
   "icons": [
     {
       "src": "favicon.ico",

@@ -6,7 +6,7 @@ import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Card, CardContent } from "../components/ui/card";
 import { toast } from "sonner";
-import { Pill } from "lucide-react";
+import { Boxes } from "lucide-react";
 
 export default function Register() {
   const { register } = useAuth();
@@ -39,10 +39,10 @@ export default function Register() {
       <div className="w-full max-w-md">
         <div className="flex items-center gap-3 mb-8">
           <div className="w-12 h-12 rounded-xl bg-primary text-primary-foreground flex items-center justify-center">
-            <Pill className="w-6 h-6" />
+            <Boxes className="w-6 h-6" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold">Create your MedStore</h1>
+            <h1 className="text-2xl font-bold">Create your ShelfWise account</h1>
             <p className="text-sm text-muted-foreground">Start free — upgrade when you need</p>
           </div>
         </div>
@@ -55,7 +55,7 @@ export default function Register() {
                 <Input data-testid="register-name-input" value={form.name} onChange={update("name")} required className="tap-lg mt-1" />
               </div>
               <div>
-                <Label>Shop name (optional)</Label>
+                <Label>Store / business name (optional)</Label>
                 <Input data-testid="register-shop-input" value={form.shop_name} onChange={update("shop_name")} className="tap-lg mt-1" />
               </div>
               <div>

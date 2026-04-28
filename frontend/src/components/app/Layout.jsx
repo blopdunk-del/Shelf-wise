@@ -2,7 +2,7 @@ import React from "react";
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
 import { Button } from "../ui/button";
-import { LayoutDashboard, Package, Plus, ScanLine, CreditCard, Shield, LogOut, Pill } from "lucide-react";
+import { LayoutDashboard, Package, Plus, ScanLine, CreditCard, Shield, LogOut, Boxes } from "lucide-react";
 
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
@@ -28,10 +28,10 @@ const Layout = ({ children }) => {
         <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2" data-testid="brand-logo">
             <div className="w-9 h-9 rounded-lg bg-primary text-primary-foreground flex items-center justify-center">
-              <Pill className="w-5 h-5" />
+              <Boxes className="w-5 h-5" />
             </div>
             <div>
-              <div className="text-base font-bold leading-tight">MedStore</div>
+              <div className="text-base font-bold leading-tight">ShelfWise</div>
               <div className="text-xs text-muted-foreground leading-tight">Stock & Expiry Tracker</div>
             </div>
           </Link>

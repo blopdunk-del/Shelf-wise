@@ -87,7 +87,7 @@ export default function Inventory() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div className="relative md:col-span-1">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <Input data-testid="inventory-search" value={search} onChange={(e)=>setSearch(e.target.value)} placeholder="Search medicine or batch" className="pl-9 tap-lg" />
+          <Input data-testid="inventory-search" value={search} onChange={(e)=>setSearch(e.target.value)} placeholder="Search item or batch" className="pl-9 tap-lg" />
         </div>
         <Select value={filter} onValueChange={setFilter}>
           <SelectTrigger data-testid="inventory-filter" className="tap-lg"><SelectValue /></SelectTrigger>
@@ -111,7 +111,7 @@ export default function Inventory() {
       <Card className="surface-card">
         <CardContent className="p-0">
           {sorted.length === 0 ? (
-            <div className="p-8 text-center text-sm text-muted-foreground">No items yet. Add medicines or scan a receipt.</div>
+            <div className="p-8 text-center text-sm text-muted-foreground">No items yet. Add items or scan a receipt.</div>
           ) : (
             <ul className="divide-y divide-border">
               {sorted.map((m) => {
@@ -139,7 +139,7 @@ export default function Inventory() {
 
       <Dialog open={!!editing} onOpenChange={(o)=>!o && setEditing(null)}>
         <DialogContent data-testid="edit-dialog">
-          <DialogHeader><DialogTitle>Edit medicine</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Edit item</DialogTitle></DialogHeader>
           {editing && (
             <div className="space-y-3">
               <div><Label>Name</Label><Input data-testid="edit-name" value={editing.name} onChange={(e)=>setEditing({...editing, name: e.target.value})} className="tap-lg mt-1" /></div>

@@ -42,7 +42,7 @@ export default function UploadReceipt() {
         quantity: m.quantity || 1,
       }));
       if (meds.length === 0) {
-        toast.warning("No medicines extracted. Add manually below.");
+        toast.warning("No items extracted. Add manually below.");
         meds.push({ name: "", batch_number: "", expiry_date: "", quantity: 1 });
       } else {
         toast.success(`Extracted ${meds.length} item(s). Please review.`);
@@ -87,7 +87,7 @@ export default function UploadReceipt() {
       }
     }
     setBusy(false);
-    if (saved) toast.success(`Saved ${saved} medicine(s)`);
+    if (saved) toast.success(`Saved ${saved} item(s)`);
     if (failed) toast.error(`${failed} failed (check limits)`);
     if (saved) navigate("/inventory");
   };
@@ -95,7 +95,7 @@ export default function UploadReceipt() {
   return (
     <div className="space-y-4" data-testid="upload-page">
       <h1 className="text-2xl font-bold">Scan receipt</h1>
-      <p className="text-sm text-muted-foreground -mt-2">Upload a photo of your purchase receipt. We'll extract items using AI — review before saving.</p>
+      <p className="text-sm text-muted-foreground -mt-2">Upload a photo of your purchase receipt. We'll extract every item using AI — review before saving.</p>
 
       <Card className="surface-card">
         <CardContent className="p-5">

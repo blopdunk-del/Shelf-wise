@@ -8,10 +8,10 @@ import { Label } from "../components/ui/label";
 import { Textarea } from "../components/ui/textarea";
 import { Badge } from "../components/ui/badge";
 import { toast } from "sonner";
-import { CheckCircle2, Clock, XCircle, Copy, BadgeCheck } from "lucide-react";
+import { CheckCircle2, Clock, XCircle, Copy, BadgeCheck, Smartphone } from "lucide-react";
 
 export default function Membership() {
-  const { user, refresh } = useAuth();
+  const { user } = useAuth();
   const [bank, setBank] = useState(null);
   const [payments, setPayments] = useState([]);
   const [form, setForm] = useState({ reference: "", method: "UPI", note: "" });
@@ -29,10 +29,16 @@ export default function Membership() {
 
   const copy = (t, label) => { navigator.clipboard.writeText(t); toast.success(`${label} copied`); };
 
+  const openUpiApp = () => {
+    if (!bank?.upi_deep_link) return;
+    // Open the UPI deep-link — will launch GPay/PhonePe/Paytm/BHIM on mobile
+    window.location.href = bank.upi_deep_link;
+  };
+
   const submit = async (e) => {
     e.preventDefault();
     if (!form.reference.trim()) {
-      toast.error("Enter UPI/transaction reference");
+      toast.error("Enter your UPI / transaction reference (UTR)");
       return;
     }
     setBusy(true);
@@ -65,7 +71,7 @@ export default function Membership() {
               {user?.is_premium && user?.premium_expires_at && (
                 <div className="text-xs text-muted-foreground mt-1">Active until {new Date(user.premium_expires_at).toLocaleDateString()}</div>
               )}
-              {!user?.is_premium && <div className="text-xs text-muted-foreground mt-1">10 medicine limit · standard alerts</div>}
+              {!user?.is_premium && <div className="text-xs text-muted-foreground mt-1">10 item limit · standard alerts</div>}
             </div>
             <div className="text-right">
               <div className="text-3xl font-bold">₹600<span className="text-sm font-normal text-muted-foreground">/mo</span></div>
@@ -77,22 +83,63 @@ export default function Membership() {
 
       {bank && (
         <Card className="surface-card">
-          <CardContent className="p-5 space-y-3">
-            <h2 className="font-bold">Pay manually to owner</h2>
-            <p className="text-sm text-muted-foreground">Use any UPI app or bank transfer, then submit your reference number below.</p>
-            <div className="surface-cream p-4 space-y-2 text-sm">
-              <div className="flex items-center justify-between"><span className="text-muted-foreground">UPI ID</span><div className="flex items-center gap-2"><span className="mono font-semibold">{bank.upi_id}</span><Button data-testid="copy-upi" size="icon" variant="ghost" onClick={()=>copy(bank.upi_id, "UPI")}><Copy className="w-3 h-3" /></Button></div></div>
-              <div className="flex items-center justify-between"><span className="text-muted-foreground">Amount</span><span className="font-semibold">₹{bank.amount}</span></div>
-              <div className="flex items-center justify-between"><span className="text-muted-foreground">Bank</span><span>{bank.bank_name}</span></div>
-              <div className="flex items-center justify-between"><span className="text-muted-foreground">Account</span><div className="flex items-center gap-2"><span className="mono">{bank.account_number}</span><Button size="icon" variant="ghost" onClick={()=>copy(bank.account_number, "Account")}><Copy className="w-3 h-3" /></Button></div></div>
-              <div className="flex items-center justify-between"><span className="text-muted-foreground">IFSC</span><span className="mono">{bank.ifsc}</span></div>
-              <div className="flex items-center justify-between"><span className="text-muted-foreground">Holder</span><span>{bank.account_name}</span></div>
+          <CardContent className="p-5 space-y-4">
+            <div>
+              <h2 className="font-bold">Pay ₹{bank.amount} to activate Premium</h2>
+              <p className="text-sm text-muted-foreground">Scan the QR with any UPI app, or tap the button below to open your UPI app prefilled.</p>
             </div>
 
-            <form onSubmit={submit} className="space-y-3 pt-2">
+            {bank.upi_qr_url && (
+              <div className="flex flex-col items-center gap-3">
+                <div className="bg-white p-3 rounded-2xl border border-border shadow-sm">
+                  <img
+                    data-testid="upi-qr-image"
+                    src={bank.upi_qr_url}
+                    alt={`UPI QR for ${bank.account_name}`}
+                    className="w-56 h-56 object-contain rounded-lg"
+                  />
+                </div>
+                <div className="text-center">
+                  <div className="font-semibold">{bank.account_name}</div>
+                  <div className="text-xs mono text-muted-foreground">{bank.upi_id}</div>
+                </div>
+              </div>
+            )}
+
+            {bank.upi_deep_link && (
+              <Button
+                data-testid="open-upi-btn"
+                onClick={openUpiApp}
+                className="w-full tap-xl text-base gap-2"
+              >
+                <Smartphone className="w-5 h-5" /> Pay ₹{bank.amount} with UPI app
+              </Button>
+            )}
+
+            <div className="surface-cream p-3 space-y-1.5 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">UPI ID</span>
+                <div className="flex items-center gap-1">
+                  <span className="mono font-semibold">{bank.upi_id}</span>
+                  <Button data-testid="copy-upi" size="icon" variant="ghost" className="h-6 w-6" onClick={()=>copy(bank.upi_id, "UPI")}><Copy className="w-3 h-3" /></Button>
+                </div>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Amount</span>
+                <span className="font-semibold">₹{bank.amount}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Note</span>
+                <span>ShelfWise Premium</span>
+              </div>
+            </div>
+
+            <form onSubmit={submit} className="space-y-3 pt-2 border-t border-border">
+              <div className="text-sm font-semibold">After paying, submit your reference</div>
               <div>
-                <Label>UPI / transaction reference *</Label>
-                <Input data-testid="pay-ref" value={form.reference} onChange={(e)=>setForm({...form, reference: e.target.value})} required className="tap-lg mt-1" placeholder="e.g. UTR/Txn ID" />
+                <Label>UPI / transaction reference (UTR) *</Label>
+                <Input data-testid="pay-ref" value={form.reference} onChange={(e)=>setForm({...form, reference: e.target.value})} required className="tap-lg mt-1" placeholder="e.g. 412345678901" />
+                <div className="text-[11px] text-muted-foreground mt-1">Find this in your UPI app's transaction history.</div>
               </div>
               <div>
                 <Label>Note (optional)</Label>

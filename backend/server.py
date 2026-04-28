@@ -34,7 +34,7 @@ JWT_ALGO = os.environ.get('JWT_ALGORITHM', 'HS256')
 JWT_EXPIRE_HOURS = int(os.environ.get('JWT_EXPIRE_HOURS', '720'))
 EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY', '')
 
-app = FastAPI(title="MedStore API")
+app = FastAPI(title="ShelfWise API")
 api_router = APIRouter(prefix="/api")
 security = HTTPBearer(auto_error=False)
 
@@ -386,13 +386,25 @@ async def ocr_extract(file: UploadFile = File(...), user: dict = Depends(get_cur
 # =================== PAYMENTS ===================
 @api_router.get("/payments/bank-details")
 async def get_bank_details(user: dict = Depends(get_current_user)):
+    upi_id = os.environ.get("BANK_UPI", "")
+    payee_name = os.environ.get("BANK_ACCOUNT_NAME", "")
+    amount = 600
+    note = "ShelfWise Premium"
+    # UPI deep-link spec: upi://pay?pa=<upi>&pn=<name>&am=<amt>&cu=INR&tn=<note>
+    from urllib.parse import quote
+    deep_link = (
+        f"upi://pay?pa={upi_id}&pn={quote(payee_name)}"
+        f"&am={amount}&cu=INR&tn={quote(note)}"
+    ) if upi_id else ""
     return {
         "bank_name": os.environ.get("BANK_NAME", ""),
-        "account_name": os.environ.get("BANK_ACCOUNT_NAME", ""),
+        "account_name": payee_name,
         "account_number": os.environ.get("BANK_ACCOUNT_NUMBER", ""),
         "ifsc": os.environ.get("BANK_IFSC", ""),
-        "upi_id": os.environ.get("BANK_UPI", ""),
-        "amount": 600,
+        "upi_id": upi_id,
+        "upi_qr_url": os.environ.get("BANK_UPI_QR_URL", ""),
+        "upi_deep_link": deep_link,
+        "amount": amount,
     }
 
 @api_router.post("/payments/submit", response_model=PaymentOut)
@@ -547,52 +559,94 @@ def send_email_sync(to: str, subject: str, body: str) -> bool:
         logger.warning(f"Email send failed: {e}")
         return False
 
+def _summarize_items(items):
+    """Build a brief text summary list (bullet lines) for emails / logs."""
+    out = []
+    today = datetime.now(timezone.utc).date()
+    for m in items:
+        try:
+            exp = datetime.fromisoformat(m["expiry_date"]).date() if "T" in m["expiry_date"] else datetime.strptime(m["expiry_date"], "%Y-%m-%d").date()
+            days = (exp - today).days
+        except Exception:
+            days = None
+        when = f"{days}d left" if days is not None and days >= 0 else (f"expired {-days}d ago" if days is not None else "")
+        out.append(
+            f"- {m['name']} (Batch {m['batch_number']}) · Qty {m['quantity']} · "
+            f"Expires {m['expiry_date']}{(' · ' + when) if when else ''}"
+        )
+    return out
+
 async def expiry_alert_loop():
-    """Background task that runs once a day to alert users about expiring meds."""
+    """Background task that runs once a day to alert users about expiring items.
+
+    Each alert document now stores brief details of every expiring item so the
+    in-app dashboard can show name/batch/qty/expiry — not just a count.
+    """
     await asyncio.sleep(5)
     while True:
         try:
             today = datetime.now(timezone.utc).date()
             end = (today + timedelta(days=10)).isoformat()
-            # Group expiring meds per user
             users = await db.users.find({}, {"_id": 0}).to_list(5000)
             for u in users:
-                meds = await db.medicines.find({
+                items = await db.medicines.find({
                     "user_id": u["id"],
                     "expiry_date": {"$gte": today.isoformat(), "$lte": end},
                 }, {"_id": 0}).to_list(500)
-                if not meds:
+                if not items:
                     continue
-                lines = [f"- {m['name']} (Batch {m['batch_number']}) expires on {m['expiry_date']} - Qty: {m['quantity']}" for m in meds]
+                brief = [
+                    {
+                        "name": m["name"],
+                        "batch_number": m["batch_number"],
+                        "quantity": m["quantity"],
+                        "expiry_date": m["expiry_date"],
+                    } for m in items
+                ]
+                lines = _summarize_items(items)
                 body = (
                     f"Hi {u.get('name', '')},\n\n"
-                    f"You have {len(meds)} medicine(s) expiring in the next 10 days:\n\n"
+                    f"You have {len(items)} item(s) expiring in the next 10 days:\n\n"
                     + "\n".join(lines) +
-                    "\n\nLog in to MedStore to manage your inventory.\n\n— MedStore"
+                    "\n\nLog in to ShelfWise to manage your stock.\n\n— ShelfWise"
                 )
-                send_email_sync(u["email"], f"[MedStore] {len(meds)} item(s) expiring soon", body)
-                # Save alert log
+                send_email_sync(u["email"], f"[ShelfWise] {len(items)} item(s) expiring soon", body)
                 await db.alerts.insert_one({
                     "id": str(uuid.uuid4()),
                     "user_id": u["id"],
-                    "count": len(meds),
+                    "count": len(items),
+                    "items": brief,
                     "sent_at": datetime.now(timezone.utc).isoformat(),
                 })
         except Exception as e:
             logger.exception(f"Alert loop error: {e}")
-        # Sleep 24h
         await asyncio.sleep(60 * 60 * 24)
 
 @api_router.get("/alerts/recent")
 async def recent_alerts(user: dict = Depends(get_current_user)):
+    """Return last 20 alerts for the user (each includes the actual items)."""
     alerts = await db.alerts.find({"user_id": user["id"]}, {"_id": 0}).sort("sent_at", -1).to_list(20)
+    # backwards compat: ensure 'items' key exists
+    for a in alerts:
+        a.setdefault("items", [])
     return alerts
+
+@api_router.get("/alerts/live")
+async def live_expiring(user: dict = Depends(get_current_user)):
+    """Live fetch of items expiring within 10 days — includes brief details for in-app notifications."""
+    today = datetime.now(timezone.utc).date()
+    end = (today + timedelta(days=10)).isoformat()
+    items = await db.medicines.find({
+        "user_id": user["id"],
+        "expiry_date": {"$gte": today.isoformat(), "$lte": end},
+    }, {"_id": 0}).sort("expiry_date", 1).to_list(500)
+    return {"count": len(items), "items": items}
 
 
 # =================== STARTUP ===================
 @api_router.get("/")
 async def root():
-    return {"message": "MedStore API", "status": "ok"}
+    return {"message": "ShelfWise API", "status": "ok"}
 
 @app.on_event("startup")
 async def startup():
@@ -605,7 +659,7 @@ async def startup():
             "id": str(uuid.uuid4()),
             "email": admin_email,
             "password_hash": hash_password(admin_password),
-            "name": "MedStore Admin",
+            "name": "ShelfWise Admin",
             "shop_name": "Admin",
             "is_admin": True,
             "premium_expires_at": (datetime.now(timezone.utc) + timedelta(days=3650)).isoformat(),
@@ -613,8 +667,11 @@ async def startup():
         })
         logger.info(f"Seeded admin: {admin_email}")
     else:
-        # Ensure is_admin flag is true (idempotent)
-        await db.users.update_one({"email": admin_email}, {"$set": {"is_admin": True}})
+        # Ensure is_admin flag is true (idempotent) and update legacy name
+        update = {"is_admin": True}
+        if existing.get("name") in ("MedStore Admin", "MedStore admin", None, ""):
+            update["name"] = "ShelfWise Admin"
+        await db.users.update_one({"email": admin_email}, {"$set": update})
 
     # Indexes
     try:
