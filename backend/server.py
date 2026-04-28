@@ -211,19 +211,24 @@ async def me(user: dict = Depends(get_current_user)):
 
 
 # =================== MEDICINE ROUTES ===================
-def require_premium(user: dict, current_count: int):
+def require_premium(user: dict):
+    """Strict gate: only premium users (and admins) can use the app's data features.
+
+    Free users have NO access to inventory/OCR — they may only view the tutorial
+    and submit a payment to upgrade.
+    """
     if user.get("is_admin"):
         return
     if is_premium_active(user):
         return
-    # Free users limited to 10 entries
-    if current_count >= 10:
-        raise HTTPException(status_code=402, detail="Free plan limit reached (10 medicines). Please upgrade to premium.")
+    raise HTTPException(
+        status_code=402,
+        detail="Premium membership required. Please upgrade to use this feature.",
+    )
 
 @api_router.post("/medicines", response_model=MedicineOut)
 async def add_medicine(body: MedicineCreate, user: dict = Depends(get_current_user)):
-    count = await db.medicines.count_documents({"user_id": user["id"]})
-    require_premium(user, count)
+    require_premium(user)
     med_id = str(uuid.uuid4())
     doc = {
         "id": med_id,
@@ -300,18 +305,13 @@ async def dashboard_stats(user: dict = Depends(get_current_user)):
         "expired": expired,
         "total_quantity": total_qty,
         "is_premium": is_premium_active(user),
-        "free_limit": 10 if not is_premium_active(user) else None,
     }
 
 
 # =================== OCR ROUTE ===================
 @api_router.post("/ocr/extract")
 async def ocr_extract(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
-    if not is_premium_active(user):
-        # Allow OCR on free plan but limited
-        count = await db.medicines.count_documents({"user_id": user["id"]})
-        if count >= 10:
-            raise HTTPException(status_code=402, detail="Free plan limit reached. Upgrade to premium.")
+    require_premium(user)
     contents = await file.read()
     if not contents:
         raise HTTPException(status_code=400, detail="Empty file")

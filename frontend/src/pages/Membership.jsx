@@ -71,7 +71,7 @@ export default function Membership() {
               {user?.is_premium && user?.premium_expires_at && (
                 <div className="text-xs text-muted-foreground mt-1">Active until {new Date(user.premium_expires_at).toLocaleDateString()}</div>
               )}
-              {!user?.is_premium && <div className="text-xs text-muted-foreground mt-1">10 item limit · standard alerts</div>}
+              {!user?.is_premium && <div className="text-xs text-muted-foreground mt-1">Tour only · Upgrade to start tracking real stock</div>}
             </div>
             <div className="text-right">
               <div className="text-3xl font-bold">₹600<span className="text-sm font-normal text-muted-foreground">/mo</span></div>

@@ -12,6 +12,7 @@ import AddMedicine from "@/pages/AddMedicine";
 import UploadReceipt from "@/pages/UploadReceipt";
 import Membership from "@/pages/Membership";
 import Admin from "@/pages/Admin";
+import Tutorial from "@/pages/Tutorial";
 
 const Loading = () => (
   <div className="min-h-screen flex items-center justify-center">
@@ -19,18 +20,29 @@ const Loading = () => (
   </div>
 );
 
-const Protected = ({ children, adminOnly }) => {
+// Premium-only route — non-premium users redirected to tutorial
+const Premium = ({ children, adminOnly }) => {
   const { user, loading } = useAuth();
   if (loading) return <Loading />;
   if (!user) return <Navigate to="/login" replace />;
   if (adminOnly && !user.is_admin) return <Navigate to="/" replace />;
+  if (!user.is_premium) return <Navigate to="/tutorial" replace />;
+  return <Layout>{children}</Layout>;
+};
+
+// Available to any logged-in user (free or premium): Tutorial + Membership
+const AnyUser = ({ children, hideLayout }) => {
+  const { user, loading } = useAuth();
+  if (loading) return <Loading />;
+  if (!user) return <Navigate to="/login" replace />;
+  if (hideLayout) return children;
   return <Layout>{children}</Layout>;
 };
 
 const PublicOnly = ({ children }) => {
   const { user, loading } = useAuth();
   if (loading) return <Loading />;
-  if (user) return <Navigate to="/" replace />;
+  if (user) return <Navigate to={user.is_premium ? "/" : "/tutorial"} replace />;
   return children;
 };
 
@@ -43,12 +55,18 @@ function App() {
           <Routes>
             <Route path="/login" element={<PublicOnly><Login /></PublicOnly>} />
             <Route path="/register" element={<PublicOnly><Register /></PublicOnly>} />
-            <Route path="/" element={<Protected><Dashboard /></Protected>} />
-            <Route path="/inventory" element={<Protected><Inventory /></Protected>} />
-            <Route path="/add" element={<Protected><AddMedicine /></Protected>} />
-            <Route path="/upload" element={<Protected><UploadReceipt /></Protected>} />
-            <Route path="/membership" element={<Protected><Membership /></Protected>} />
-            <Route path="/admin" element={<Protected adminOnly><Admin /></Protected>} />
+
+            {/* Free-tier accessible: only tutorial & membership */}
+            <Route path="/tutorial" element={<AnyUser hideLayout><Tutorial /></AnyUser>} />
+            <Route path="/membership" element={<AnyUser><Membership /></AnyUser>} />
+
+            {/* Premium-only app */}
+            <Route path="/" element={<Premium><Dashboard /></Premium>} />
+            <Route path="/inventory" element={<Premium><Inventory /></Premium>} />
+            <Route path="/add" element={<Premium><AddMedicine /></Premium>} />
+            <Route path="/upload" element={<Premium><UploadReceipt /></Premium>} />
+            <Route path="/admin" element={<Premium adminOnly><Admin /></Premium>} />
+
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </AuthProvider>

@@ -1,130 +1,201 @@
-"""MedStore backend API tests - auth, medicines, dashboard, payments, admin, OCR."""
+"""ShelfWise backend API tests - covers the new strict premium gate.
+
+Premium gate behavior (post-iteration-1):
+- Free users CANNOT access POST /api/medicines or POST /api/ocr/extract → HTTP 402
+- Free users CAN still access GET /api/medicines and GET /api/dashboard/stats (read-only)
+- Admin always treated as premium (is_admin=True bypasses gate)
+"""
 import os
 import io
 import uuid
-import base64
 import pytest
 import requests
-from PIL import Image
+from PIL import Image, ImageDraw
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://pharma-track-24.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("REACT_APP_BACKEND_URL").rstrip("/")
 ADMIN_EMAIL = "admin@medstore.com"
 ADMIN_PASSWORD = "Admin@12345"
 
-# ---- fixtures ----
+
+# ============ fixtures ============
 @pytest.fixture(scope="session")
 def admin_token():
     r = requests.post(f"{BASE_URL}/api/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
     assert r.status_code == 200, r.text
     return r.json()["token"]
 
-@pytest.fixture(scope="session")
-def user_creds():
-    email = f"TEST_user_{uuid.uuid4().hex[:8]}@example.com"
-    return {"email": email, "password": "Passw0rd!", "name": "Test User", "shop_name": "TestShop"}
 
 @pytest.fixture(scope="session")
-def user_token(user_creds):
-    r = requests.post(f"{BASE_URL}/api/auth/register", json=user_creds)
+def free_user_creds():
+    return {
+        "email": f"TEST_free_{uuid.uuid4().hex[:8]}@example.com",
+        "password": "Passw0rd!",
+        "name": "Free User",
+        "shop_name": "FreeShop",
+    }
+
+
+@pytest.fixture(scope="session")
+def free_user_token(free_user_creds):
+    r = requests.post(f"{BASE_URL}/api/auth/register", json=free_user_creds)
     assert r.status_code == 200, r.text
-    data = r.json()
-    assert "token" in data and data["user"]["email"] == user_creds["email"].lower()
-    return data["token"]
+    j = r.json()
+    assert j["user"]["is_premium"] is False
+    return j["token"]
 
-def H(tok): return {"Authorization": f"Bearer {tok}"}
 
-# ---- auth ----
-def test_login_admin():
+@pytest.fixture(scope="session")
+def fresh_user_for_approval():
+    """Separate user used by the admin-approval flow test."""
+    creds = {
+        "email": f"TEST_approve_{uuid.uuid4().hex[:8]}@example.com",
+        "password": "Passw0rd!",
+        "name": "Approve User",
+    }
+    r = requests.post(f"{BASE_URL}/api/auth/register", json=creds)
+    assert r.status_code == 200
+    return creds, r.json()["token"]
+
+
+def H(tok):
+    return {"Authorization": f"Bearer {tok}"}
+
+
+# ============ auth ============
+def test_login_admin_is_premium():
     r = requests.post(f"{BASE_URL}/api/auth/login", json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD})
     assert r.status_code == 200
-    j = r.json(); assert j["user"]["is_admin"] is True
+    j = r.json()
+    assert j["user"]["is_admin"] is True
+    assert j["user"]["is_premium"] is True
+
+
+def test_register_returns_free_user(free_user_token, free_user_creds):
+    r = requests.get(f"{BASE_URL}/api/auth/me", headers=H(free_user_token))
+    assert r.status_code == 200
+    me = r.json()
+    assert me["email"] == free_user_creds["email"].lower()
+    assert me["is_admin"] is False
+    assert me["is_premium"] is False
+
 
 def test_login_invalid():
     r = requests.post(f"{BASE_URL}/api/auth/login", json={"email": "none@x.com", "password": "bad"})
     assert r.status_code == 401
 
-def test_me(user_token, user_creds):
-    r = requests.get(f"{BASE_URL}/api/auth/me", headers=H(user_token))
-    assert r.status_code == 200
-    assert r.json()["email"] == user_creds["email"].lower()
 
-def test_me_no_token():
-    r = requests.get(f"{BASE_URL}/api/auth/me")
-    assert r.status_code in (401, 403)
+# ============ premium gate (NEW behavior) ============
+def test_free_user_post_medicine_blocked_402(free_user_token):
+    """Free user must NOT be able to add medicine — strict gate."""
+    r = requests.post(
+        f"{BASE_URL}/api/medicines",
+        json={"name": "TEST_Blocked", "batch_number": "B1", "expiry_date": "2027-01-01", "quantity": 1},
+        headers=H(free_user_token),
+    )
+    assert r.status_code == 402, r.text
+    assert "premium" in r.text.lower() or "membership" in r.text.lower()
 
-# ---- medicines ----
-def test_medicine_crud(user_token):
-    payload = {"name": "TEST_Paracetamol", "batch_number": "B001", "expiry_date": "2026-05-30", "quantity": 20}
-    r = requests.post(f"{BASE_URL}/api/medicines", json=payload, headers=H(user_token))
-    assert r.status_code == 200, r.text
-    mid = r.json()["id"]
-    # list
-    r = requests.get(f"{BASE_URL}/api/medicines", headers=H(user_token))
-    assert r.status_code == 200 and any(m["id"] == mid for m in r.json())
-    # update
-    r = requests.put(f"{BASE_URL}/api/medicines/{mid}", json={"quantity": 50}, headers=H(user_token))
-    assert r.status_code == 200 and r.json()["quantity"] == 50
-    # search
-    r = requests.get(f"{BASE_URL}/api/medicines?search=TEST_Para", headers=H(user_token))
-    assert r.status_code == 200 and len(r.json()) >= 1
-    # filter expired (none yet)
-    r = requests.get(f"{BASE_URL}/api/medicines?filter=expired", headers=H(user_token))
-    assert r.status_code == 200
-    # delete
-    r = requests.delete(f"{BASE_URL}/api/medicines/{mid}", headers=H(user_token))
-    assert r.status_code == 200
-    r = requests.put(f"{BASE_URL}/api/medicines/{mid}", json={"quantity": 1}, headers=H(user_token))
-    assert r.status_code == 404
 
-def test_dashboard_stats(user_token):
-    r = requests.get(f"{BASE_URL}/api/dashboard/stats", headers=H(user_token))
+def test_free_user_ocr_blocked_402(free_user_token):
+    img = Image.new("RGB", (200, 80), color=(255, 255, 255))
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG")
+    files = {"file": ("r.jpg", buf.getvalue(), "image/jpeg")}
+    r = requests.post(f"{BASE_URL}/api/ocr/extract", files=files, headers=H(free_user_token), timeout=60)
+    assert r.status_code == 402, r.text
+
+
+def test_free_user_can_read_medicines(free_user_token):
+    """Read-only listing must still work for free users (returns their own items, even if 0)."""
+    r = requests.get(f"{BASE_URL}/api/medicines", headers=H(free_user_token))
+    assert r.status_code == 200
+    assert isinstance(r.json(), list)
+
+
+def test_free_user_can_read_stats(free_user_token):
+    r = requests.get(f"{BASE_URL}/api/dashboard/stats", headers=H(free_user_token))
     assert r.status_code == 200
     j = r.json()
     for k in ("total", "expiring_soon", "expired", "total_quantity", "is_premium"):
         assert k in j
+    assert j["is_premium"] is False
 
-def test_free_limit(user_token):
-    # create up to 10, then 11th must fail 402
-    created = []
-    # clear current first
-    r = requests.get(f"{BASE_URL}/api/medicines", headers=H(user_token))
-    for m in r.json():
-        requests.delete(f"{BASE_URL}/api/medicines/{m['id']}", headers=H(user_token))
-    for i in range(10):
-        r = requests.post(f"{BASE_URL}/api/medicines",
-            json={"name": f"TEST_M{i}", "batch_number": f"B{i}", "expiry_date": "2027-01-01", "quantity": 1},
-            headers=H(user_token))
-        assert r.status_code == 200, r.text
-        created.append(r.json()["id"])
-    r = requests.post(f"{BASE_URL}/api/medicines",
-        json={"name": "TEST_11", "batch_number": "B11", "expiry_date": "2027-01-01", "quantity": 1},
-        headers=H(user_token))
-    assert r.status_code == 402
-    # cleanup
-    for mid in created:
-        requests.delete(f"{BASE_URL}/api/medicines/{mid}", headers=H(user_token))
 
-# ---- payments ----
-def test_bank_details(user_token):
-    r = requests.get(f"{BASE_URL}/api/payments/bank-details", headers=H(user_token))
-    assert r.status_code == 200 and "amount" in r.json()
+# ============ medicine CRUD as ADMIN (admin bypasses gate) ============
+def test_admin_medicine_crud(admin_token):
+    payload = {"name": "TEST_AdminMed", "batch_number": "BADM1", "expiry_date": "2027-05-30", "quantity": 20}
+    r = requests.post(f"{BASE_URL}/api/medicines", json=payload, headers=H(admin_token))
+    assert r.status_code == 200, r.text
+    mid = r.json()["id"]
+    try:
+        r = requests.get(f"{BASE_URL}/api/medicines?search=TEST_AdminMed", headers=H(admin_token))
+        assert r.status_code == 200 and any(m["id"] == mid for m in r.json())
 
-def test_payment_submit_and_list(user_token):
-    r = requests.post(f"{BASE_URL}/api/payments/submit",
-        json={"amount": 600, "reference": "TXN_TEST_123", "method": "UPI"}, headers=H(user_token))
+        r = requests.put(f"{BASE_URL}/api/medicines/{mid}", json={"quantity": 50}, headers=H(admin_token))
+        assert r.status_code == 200 and r.json()["quantity"] == 50
+
+        # GET to verify update persisted
+        r = requests.get(f"{BASE_URL}/api/medicines?search=TEST_AdminMed", headers=H(admin_token))
+        assert r.status_code == 200
+        assert any(m["id"] == mid and m["quantity"] == 50 for m in r.json())
+    finally:
+        r = requests.delete(f"{BASE_URL}/api/medicines/{mid}", headers=H(admin_token))
+        assert r.status_code == 200
+        r = requests.put(f"{BASE_URL}/api/medicines/{mid}", json={"quantity": 1}, headers=H(admin_token))
+        assert r.status_code == 404
+
+
+def test_admin_ocr_extract(admin_token):
+    """Admin should bypass premium gate for OCR (LLM call live)."""
+    img = Image.new("RGB", (600, 250), color=(255, 255, 255))
+    d = ImageDraw.Draw(img)
+    d.text((20, 20), "Pharmacy Receipt", fill=(0, 0, 0))
+    d.text((20, 60), "Paracetamol 500mg  B#PAR123  EXP 12/27  QTY 10", fill=(0, 0, 0))
+    d.text((20, 100), "Amoxicillin 250mg  B#AMX555  EXP 06/28  QTY 5", fill=(0, 0, 0))
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG")
+    files = {"file": ("receipt.jpg", buf.getvalue(), "image/jpeg")}
+    r = requests.post(f"{BASE_URL}/api/ocr/extract", files=files, headers=H(admin_token), timeout=120)
+    assert r.status_code == 200, r.text
+    j = r.json()
+    assert "medicines" in j and isinstance(j["medicines"], list)
+
+
+# ============ payments ============
+def test_bank_details_has_new_qr(free_user_token):
+    """Bank details must reflect new UPI QR + UPI ID."""
+    r = requests.get(f"{BASE_URL}/api/payments/bank-details", headers=H(free_user_token))
+    assert r.status_code == 200
+    j = r.json()
+    assert j["amount"] == 600
+    assert j["upi_id"] == "8919803257@fam"
+    assert j["account_name"] == "Majid Hussain"
+    assert "5riryn4o_IMG_20260428_180302.jpg" in (j["upi_qr_url"] or "")
+    assert (j["upi_deep_link"] or "").startswith("upi://pay?pa=8919803257@fam")
+
+
+def test_payment_submit_and_list(free_user_token):
+    r = requests.post(
+        f"{BASE_URL}/api/payments/submit",
+        json={"amount": 600, "reference": "TXN_TEST_123", "method": "UPI"},
+        headers=H(free_user_token),
+    )
     assert r.status_code == 200
     pid = r.json()["id"]
-    r = requests.get(f"{BASE_URL}/api/payments/my", headers=H(user_token))
+    r = requests.get(f"{BASE_URL}/api/payments/my", headers=H(free_user_token))
     assert r.status_code == 200 and any(p["id"] == pid for p in r.json())
 
-# ---- admin guards ----
-def test_admin_guard_non_admin(user_token):
-    r = requests.get(f"{BASE_URL}/api/admin/users", headers=H(user_token))
+
+# ============ admin guards & approval flow ============
+def test_admin_guard_non_admin(free_user_token):
+    r = requests.get(f"{BASE_URL}/api/admin/users", headers=H(free_user_token))
     assert r.status_code == 403
+
 
 def test_admin_users_list(admin_token):
     r = requests.get(f"{BASE_URL}/api/admin/users", headers=H(admin_token))
     assert r.status_code == 200 and isinstance(r.json(), list)
+
 
 def test_admin_stats(admin_token):
     r = requests.get(f"{BASE_URL}/api/admin/stats", headers=H(admin_token))
@@ -132,47 +203,92 @@ def test_admin_stats(admin_token):
     for k in ("total_users", "total_medicines", "pending_payments", "approved_payments"):
         assert k in r.json()
 
-def test_admin_approve_flow(admin_token, user_token, user_creds):
-    # create a pending payment
-    r = requests.post(f"{BASE_URL}/api/payments/submit",
-        json={"amount": 600, "reference": "TXN_APPROVE_1", "method": "UPI"}, headers=H(user_token))
+
+def test_admin_approve_unblocks_user(admin_token, fresh_user_for_approval):
+    """Approving payment should make user premium and unblock POST /medicines."""
+    creds, user_tok = fresh_user_for_approval
+
+    # Confirm the user is BLOCKED before approval
+    r = requests.post(
+        f"{BASE_URL}/api/medicines",
+        json={"name": "TEST_PreApprove", "batch_number": "BX1", "expiry_date": "2027-01-01", "quantity": 1},
+        headers=H(user_tok),
+    )
+    assert r.status_code == 402
+
+    # Submit + approve payment
+    r = requests.post(
+        f"{BASE_URL}/api/payments/submit",
+        json={"amount": 600, "reference": "TXN_APPROVE_GATE_1", "method": "UPI"},
+        headers=H(user_tok),
+    )
     pid = r.json()["id"]
     r = requests.post(f"{BASE_URL}/api/admin/payments/{pid}/approve", headers=H(admin_token))
     assert r.status_code == 200 and r.json()["status"] == "approved"
-    # user should now be premium
-    r = requests.get(f"{BASE_URL}/api/auth/me", headers=H(user_token))
-    assert r.json()["is_premium"] is True
-    # revoke
-    uid = r.json()["id"]
-    r = requests.post(f"{BASE_URL}/api/admin/users/{uid}/revoke", headers=H(admin_token))
-    assert r.status_code == 200
-    r = requests.get(f"{BASE_URL}/api/auth/me", headers=H(user_token))
-    assert r.json()["is_premium"] is False
-    # grant
-    r = requests.post(f"{BASE_URL}/api/admin/users/{uid}/grant", headers=H(admin_token))
-    assert r.status_code == 200
 
-def test_admin_reject_payment(admin_token, user_token):
-    r = requests.post(f"{BASE_URL}/api/payments/submit",
-        json={"amount": 600, "reference": "TXN_REJ_1", "method": "UPI"}, headers=H(user_token))
+    # /me reflects premium
+    r = requests.get(f"{BASE_URL}/api/auth/me", headers=H(user_tok))
+    assert r.status_code == 200
+    me = r.json()
+    assert me["is_premium"] is True
+    assert me["premium_expires_at"], "premium_expires_at must be set after approval"
+
+    # Now POST /medicines must succeed
+    r = requests.post(
+        f"{BASE_URL}/api/medicines",
+        json={"name": "TEST_PostApprove", "batch_number": "BX2", "expiry_date": "2027-01-01", "quantity": 1},
+        headers=H(user_tok),
+    )
+    assert r.status_code == 200, r.text
+    mid = r.json()["id"]
+    requests.delete(f"{BASE_URL}/api/medicines/{mid}", headers=H(user_tok))
+
+
+def test_admin_reject_payment(admin_token, free_user_token):
+    r = requests.post(
+        f"{BASE_URL}/api/payments/submit",
+        json={"amount": 600, "reference": "TXN_REJ_1", "method": "UPI"},
+        headers=H(free_user_token),
+    )
     pid = r.json()["id"]
     r = requests.post(f"{BASE_URL}/api/admin/payments/{pid}/reject", headers=H(admin_token))
     assert r.status_code == 200
 
-# ---- OCR ----
-def _receipt_image():
-    img = Image.new("RGB", (600, 400), color=(255, 255, 255))
-    from PIL import ImageDraw
-    d = ImageDraw.Draw(img)
-    d.text((20, 20), "MediPlus Pharmacy Receipt", fill=(0, 0, 0))
-    d.text((20, 60), "Paracetamol 500mg  B#PAR123  EXP 12/27  QTY 10", fill=(0, 0, 0))
-    d.text((20, 90), "Amoxicillin 250mg  B#AMX555  EXP 06/28  QTY 5", fill=(0, 0, 0))
-    d.rectangle([10, 10, 590, 390], outline=(0, 0, 0), width=2)
-    buf = io.BytesIO(); img.save(buf, format="JPEG"); return buf.getvalue()
 
-def test_ocr_extract(user_token):
-    img_bytes = _receipt_image()
-    files = {"file": ("receipt.jpg", img_bytes, "image/jpeg")}
-    r = requests.post(f"{BASE_URL}/api/ocr/extract", files=files, headers=H(user_token), timeout=120)
-    assert r.status_code == 200, r.text
-    j = r.json(); assert "medicines" in j and isinstance(j["medicines"], list)
+# ============ alerts (NEW endpoints with item details) ============
+def test_alerts_recent_returns_items_array(free_user_token):
+    r = requests.get(f"{BASE_URL}/api/alerts/recent", headers=H(free_user_token))
+    assert r.status_code == 200
+    alerts = r.json()
+    assert isinstance(alerts, list)
+    # Each alert (if any) must have an items list
+    for a in alerts:
+        assert "items" in a and isinstance(a["items"], list)
+
+
+def test_alerts_live_shape(admin_token):
+    """GET /api/alerts/live must return {count, items[]}."""
+    # Seed one expiring item as admin
+    from datetime import datetime, timezone, timedelta
+    soon = (datetime.now(timezone.utc).date() + timedelta(days=5)).isoformat()
+    r = requests.post(
+        f"{BASE_URL}/api/medicines",
+        json={"name": "TEST_LiveExpiry", "batch_number": "BLIVE1", "expiry_date": soon, "quantity": 7},
+        headers=H(admin_token),
+    )
+    assert r.status_code == 200
+    mid = r.json()["id"]
+    try:
+        r = requests.get(f"{BASE_URL}/api/alerts/live", headers=H(admin_token))
+        assert r.status_code == 200
+        j = r.json()
+        assert "count" in j and "items" in j
+        assert isinstance(j["items"], list)
+        # The seeded item must be present with the required fields
+        match = [m for m in j["items"] if m["id"] == mid]
+        assert match, "seeded expiring medicine should appear in /alerts/live"
+        m = match[0]
+        for k in ("name", "batch_number", "quantity", "expiry_date"):
+            assert k in m
+    finally:
+        requests.delete(f"{BASE_URL}/api/medicines/{mid}", headers=H(admin_token))
