@@ -577,50 +577,114 @@ def _summarize_items(items):
     return out
 
 async def expiry_alert_loop():
-    """Background task that runs once a day to alert users about expiring items.
-
-    Each alert document now stores brief details of every expiring item so the
-    in-app dashboard can show name/batch/qty/expiry — not just a count.
+    """Background task that runs once a day to alert users about:
+    - Expiring inventory items (10 days ahead)
+    - Premium membership renewal reminders (5 days before expiry)
     """
     await asyncio.sleep(5)
     while True:
         try:
             today = datetime.now(timezone.utc).date()
+            now = datetime.now(timezone.utc)
             end = (today + timedelta(days=10)).isoformat()
             users = await db.users.find({}, {"_id": 0}).to_list(5000)
             for u in users:
+                # 1) Item expiry alerts
                 items = await db.medicines.find({
                     "user_id": u["id"],
                     "expiry_date": {"$gte": today.isoformat(), "$lte": end},
                 }, {"_id": 0}).to_list(500)
-                if not items:
-                    continue
-                brief = [
-                    {
-                        "name": m["name"],
-                        "batch_number": m["batch_number"],
-                        "quantity": m["quantity"],
-                        "expiry_date": m["expiry_date"],
-                    } for m in items
-                ]
-                lines = _summarize_items(items)
-                body = (
-                    f"Hi {u.get('name', '')},\n\n"
-                    f"You have {len(items)} item(s) expiring in the next 10 days:\n\n"
-                    + "\n".join(lines) +
-                    "\n\nLog in to ShelfWise to manage your stock.\n\n— ShelfWise"
-                )
-                send_email_sync(u["email"], f"[ShelfWise] {len(items)} item(s) expiring soon", body)
-                await db.alerts.insert_one({
-                    "id": str(uuid.uuid4()),
-                    "user_id": u["id"],
-                    "count": len(items),
-                    "items": brief,
-                    "sent_at": datetime.now(timezone.utc).isoformat(),
-                })
+                if items:
+                    brief = [
+                        {
+                            "name": m["name"],
+                            "batch_number": m["batch_number"],
+                            "quantity": m["quantity"],
+                            "expiry_date": m["expiry_date"],
+                        } for m in items
+                    ]
+                    lines = _summarize_items(items)
+                    body = (
+                        f"Hi {u.get('name', '')},\n\n"
+                        f"You have {len(items)} item(s) expiring in the next 10 days:\n\n"
+                        + "\n".join(lines) +
+                        "\n\nLog in to ShelfWise to manage your stock.\n\n— ShelfWise"
+                    )
+                    send_email_sync(u["email"], f"[ShelfWise] {len(items)} item(s) expiring soon", body)
+                    await db.alerts.insert_one({
+                        "id": str(uuid.uuid4()),
+                        "user_id": u["id"],
+                        "type": "item_expiry",
+                        "count": len(items),
+                        "items": brief,
+                        "sent_at": now.isoformat(),
+                    })
+
+                # 2) Membership renewal reminder (5 days before expiry, but not for admins)
+                if not u.get("is_admin") and u.get("premium_expires_at"):
+                    try:
+                        exp_dt = datetime.fromisoformat(u["premium_expires_at"])
+                        days_left = (exp_dt - now).days
+                    except Exception:
+                        days_left = None
+                    # Send when 0..5 days remain; dedupe with a 24h cooldown
+                    if days_left is not None and 0 <= days_left <= 5:
+                        last = await db.alerts.find_one(
+                            {"user_id": u["id"], "type": "renewal_reminder"},
+                            sort=[("sent_at", -1)],
+                            projection={"_id": 0},
+                        )
+                        last_dt = None
+                        if last:
+                            try:
+                                last_dt = datetime.fromisoformat(last["sent_at"])
+                            except Exception:
+                                last_dt = None
+                        if not last_dt or (now - last_dt) >= timedelta(hours=20):
+                            body = (
+                                f"Hi {u.get('name', '')},\n\n"
+                                f"Your ShelfWise Premium expires in {days_left} day(s) "
+                                f"(on {exp_dt.date().isoformat()}).\n\n"
+                                f"Renew with ₹600 to keep your account active:\n"
+                                f"UPI: {os.environ.get('BANK_UPI', '')} ({os.environ.get('BANK_ACCOUNT_NAME', '')})\n\n"
+                                f"After paying, log in and submit your UTR — premium will activate within 30 minutes "
+                                f"of admin verification.\n\n— ShelfWise"
+                            )
+                            send_email_sync(u["email"], f"[ShelfWise] Premium expires in {days_left}d — renew now", body)
+                            await db.alerts.insert_one({
+                                "id": str(uuid.uuid4()),
+                                "user_id": u["id"],
+                                "type": "renewal_reminder",
+                                "days_left": days_left,
+                                "expires_at": exp_dt.isoformat(),
+                                "sent_at": now.isoformat(),
+                            })
         except Exception as e:
             logger.exception(f"Alert loop error: {e}")
         await asyncio.sleep(60 * 60 * 24)
+
+@api_router.get("/membership/status")
+async def membership_status(user: dict = Depends(get_current_user)):
+    """Return premium status + days_left + needs_renewal flag for in-app banners."""
+    now = datetime.now(timezone.utc)
+    days_left = None
+    expires_at = user.get("premium_expires_at")
+    if expires_at:
+        try:
+            exp = datetime.fromisoformat(expires_at)
+            days_left = max(0, (exp - now).days)
+        except Exception:
+            days_left = None
+    is_premium = is_premium_active(user)
+    return {
+        "is_premium": is_premium,
+        "is_admin": bool(user.get("is_admin")),
+        "expires_at": expires_at,
+        "days_left": days_left,
+        # Show renewal banner once premium has 5 or fewer days remaining
+        "needs_renewal": bool(is_premium and not user.get("is_admin") and days_left is not None and days_left <= 5),
+        "activation_sla_minutes": 30,
+    }
 
 @api_router.get("/alerts/recent")
 async def recent_alerts(user: dict = Depends(get_current_user)):

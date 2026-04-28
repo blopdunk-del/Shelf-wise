@@ -78,6 +78,14 @@ export default function Membership() {
               <div className="text-xs text-muted-foreground">Unlimited entries · Priority alerts</div>
             </div>
           </div>
+          <div className="mt-4 surface-cream p-3 rounded-lg flex items-start gap-2 text-xs">
+            <Clock className="w-4 h-4 text-primary mt-0.5 shrink-0" />
+            <div>
+              <span className="font-semibold">Premium activates within 30 minutes</span> of admin verifying your payment.
+              Membership is <span className="font-semibold">manual monthly renewal</span> — we'll remind you 5 days before
+              expiry with a one-tap UPI link. Admin manually approves every payment.
+            </div>
+          </div>
         </CardContent>
       </Card>
 

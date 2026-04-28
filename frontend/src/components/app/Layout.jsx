@@ -3,6 +3,7 @@ import { Link, NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
 import { Button } from "../ui/button";
 import { LayoutDashboard, Package, Plus, ScanLine, CreditCard, Shield, LogOut, Boxes, Sparkles } from "lucide-react";
+import RenewalBanner from "./RenewalBanner";
 
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
@@ -24,6 +25,7 @@ const Layout = ({ children }) => {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
+      <RenewalBanner />
       <header className="sticky top-0 z-30 bg-[#faf7ee]/90 backdrop-blur border-b border-border">
         <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
           <Link to={isPremium ? "/" : "/tutorial"} className="flex items-center gap-2" data-testid="brand-logo">

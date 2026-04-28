@@ -255,6 +255,103 @@ def test_admin_reject_payment(admin_token, free_user_token):
     assert r.status_code == 200
 
 
+# ============ membership status (NEW endpoint) ============
+def test_membership_status_admin(admin_token):
+    """Admin → is_premium=true, is_admin=true, needs_renewal=false (admin never needs renewal)."""
+    r = requests.get(f"{BASE_URL}/api/membership/status", headers=H(admin_token))
+    assert r.status_code == 200, r.text
+    j = r.json()
+    assert j["is_premium"] is True
+    assert j["is_admin"] is True
+    assert j["needs_renewal"] is False
+    assert j["activation_sla_minutes"] == 30
+
+
+def test_membership_status_fresh_free_user(free_user_token):
+    """Fresh free user → is_premium=false, expires_at=null, days_left=null, needs_renewal=false, activation_sla_minutes=30."""
+    r = requests.get(f"{BASE_URL}/api/membership/status", headers=H(free_user_token))
+    assert r.status_code == 200
+    j = r.json()
+    assert j["is_premium"] is False
+    assert j["is_admin"] is False
+    assert j["expires_at"] is None
+    assert j["days_left"] is None
+    assert j["needs_renewal"] is False
+    assert j["activation_sla_minutes"] == 30
+
+
+def test_membership_status_premium_near_expiry(admin_token):
+    """Premium user with expiry within 5 days → needs_renewal=true, 0<=days_left<=5."""
+    creds = {
+        "email": f"TEST_near_{uuid.uuid4().hex[:8]}@example.com",
+        "password": "Passw0rd!",
+        "name": "Near Expiry",
+    }
+    r = requests.post(f"{BASE_URL}/api/auth/register", json=creds)
+    assert r.status_code == 200
+    user_tok = r.json()["token"]
+    user_id = r.json()["user"]["id"]
+    # Grant premium for 1 month, then directly set expiry to ~3 days from now via two-step:
+    # First grant (sets ~30 days), then revoke and grant 0 months won't work — instead use Mongo? No, use API only.
+    # Workaround: grant 1 month then call grant with negative? Not supported. Instead, manipulate via approve flow + admin DB?
+    # Simpler: use admin grant for 1 month, then use a direct override endpoint? None exists.
+    # Use the /admin/users endpoint: we need to set premium_expires_at to ~3 days from now.
+    # The grant API only adds 30*months days. Pass a negative? Let's try months=0 won't change. Use direct DB? No db access in test.
+    # Strategy: grant 1 month, but then use admin to revoke and re-set via approve flow with creative timing — not possible.
+    # Best option: PATCH directly via a test-only path — none. So grant months=1 (~30 days), then manually adjust by calling
+    # grant with months=-27 won't work since base is current_exp + 30*months — would go negative.
+    # Final workaround: directly update via mongo through python motor — but tests are sync. Use pymongo here.
+    from pymongo import MongoClient
+    from datetime import datetime, timezone, timedelta
+    mc = MongoClient(os.environ.get("MONGO_URL"))
+    mdb = mc[os.environ.get("DB_NAME")]
+    near = (datetime.now(timezone.utc) + timedelta(days=3)).isoformat()
+    mdb.users.update_one({"id": user_id}, {"$set": {"premium_expires_at": near}})
+    try:
+        r = requests.get(f"{BASE_URL}/api/membership/status", headers=H(user_tok))
+        assert r.status_code == 200, r.text
+        j = r.json()
+        assert j["is_premium"] is True
+        assert j["is_admin"] is False
+        assert j["needs_renewal"] is True
+        assert j["days_left"] is not None
+        assert 0 <= j["days_left"] <= 5
+        assert j["activation_sla_minutes"] == 30
+    finally:
+        mdb.users.delete_one({"id": user_id})
+        mc.close()
+
+
+def test_membership_status_premium_far_expiry(admin_token):
+    """Premium user with expiry 30 days away → needs_renewal=false."""
+    creds = {
+        "email": f"TEST_far_{uuid.uuid4().hex[:8]}@example.com",
+        "password": "Passw0rd!",
+        "name": "Far Expiry",
+    }
+    r = requests.post(f"{BASE_URL}/api/auth/register", json=creds)
+    assert r.status_code == 200
+    user_tok = r.json()["token"]
+    user_id = r.json()["user"]["id"]
+    # Use admin grant API to get ~30 day expiry
+    r = requests.post(f"{BASE_URL}/api/admin/users/{user_id}/grant?months=1", headers=H(admin_token))
+    assert r.status_code == 200
+    try:
+        r = requests.get(f"{BASE_URL}/api/membership/status", headers=H(user_tok))
+        assert r.status_code == 200
+        j = r.json()
+        assert j["is_premium"] is True
+        assert j["needs_renewal"] is False
+        assert j["days_left"] is not None
+        assert j["days_left"] > 5
+    finally:
+        from pymongo import MongoClient
+        mc = MongoClient(os.environ.get("MONGO_URL"))
+        mdb = mc[os.environ.get("DB_NAME")]
+        mdb.users.delete_one({"id": user_id})
+        mc.close()
+
+
 # ============ alerts (NEW endpoints with item details) ============
 def test_alerts_recent_returns_items_array(free_user_token):
     r = requests.get(f"{BASE_URL}/api/alerts/recent", headers=H(free_user_token))
