@@ -1,0 +1,30 @@
+{
+  "summary": "Iteration 4 — verified ShelfWise PWA + Web Push additions (service worker, manifest, VAPID keys, push subscribe/unsubscribe/test endpoints, PwaBanners on Dashboard). Added 5 new pytest cases to /app/backend/tests/test_medstore.py covering all push endpoints. Full suite now 27/27 passing in 13.31s (22 regression + 5 new push). Frontend: /sw.js (200, application/javascript, 2491 bytes) and /manifest.json (200, application/json, contains short_name='ShelfWise', display='standalone', start_url='/') both fetchable. After restarting frontend (CRA dev server had cached older index.html without manifest link), the served index.html now contains <link rel='manifest' href='/manifest.json' />. Admin login → Dashboard renders cleanly with no React errors; service worker registers (navigator.serviceWorker.getRegistration() → /sw.js). Notification.permission='denied' in headless chromium so [data-testid='pwa-banner'] is not rendered (acceptable per review_request; component is imported & reachable since no React errors).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_medstore.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "GET /api/push/vapid-public-key intentionally has NO auth dependency — public key is meant to be fetched before login by the SW, this is correct (verified with no-auth GET returns 200).",
+    "POST /api/push/subscribe correctly validates 'p256dh' and 'auth' presence in keys (returns 400 'Invalid subscription' on missing). Upsert by endpoint key ensures idempotency — verified via mongo count_documents == 1 after duplicate POST.",
+    "DELETE /api/push/unsubscribe correctly scopes deletion by user_id+endpoint, preventing other users from deleting someone else's subscription. Good.",
+    "POST /api/push/test calls send_push_to_user which catches WebPushException and removes 404/410 endpoints; other errors are logged as warnings. The endpoint returns 200 even when delivery fails — verified does not crash (returns {ok: true}).",
+    "send_push_to_user uses webpush() synchronously inside an async function — pywebpush is sync I/O which will block the event loop briefly per subscription. For MVP/low subscriber count this is acceptable, but at scale should be wrapped in asyncio.to_thread() or run_in_executor. Not blocking for current iteration.",
+    "VAPID_PRIVATE_KEY_PEM in .env uses literal '\\n' which server.py decodes via .replace('\\\\n', '\\n') — works correctly. Verified pywebpush successfully signs with this key (no crypto exceptions during /push/test).",
+    "manifest.json missing 192x192 / 512x512 PNG icons — only references favicon.ico (64x64). Chrome's install prompt criteria require at least one 192x192 and one 512x512 icon. PWA installability may be limited on Android until icons are added. Not blocking for review_request acceptance but recommended.",
+    "sw.js uses 'shelfwise-shell-v1' cache name with no version bump strategy in the code — future asset updates will require a manual cache name bump. Acceptable for MVP.",
+    "PwaBanners gating: relies on Notification API + user.is_premium. In headless chromium permission='denied' so banner stays hidden — main agent should verify in real browser that banner appears for premium users with permission='default'."
+  ],
+  "updated_files": ["/app/backend/tests/test_medstore.py"],
+  "success_rate": {"backend": "100% (27/27)", "frontend": "100% (sw, manifest, dashboard render verified)"},
+  "test_credentials": "Admin: admin@medstore.com / Admin@12345 (used). Renewal-test user r1777380813@t.com not used this iteration.",
+  "seed_data_creation": "pytest registers TEST_free_*, TEST_approve_*, TEST_near_*, TEST_far_* users; near/far users + their fake push subscriptions are deleted in finally blocks. Admin's test push subscriptions are unsubscribed via API.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All review_request iteration 4 acceptance criteria verified PASS. New testids: pwa-banner (not rendered in headless because Notification.permission='denied' — main agent should manually verify in real browser). Frontend was restarted once during this iteration because CRA dev server had cached an older index.html missing the <link rel='manifest'>; if a future run sees the same issue, a `sudo supervisorctl restart frontend` fixes it. Push subscription endpoints fully tested with fake FCM endpoints. The pywebpush call is sync inside async context — non-blocking issue for now. New /api/push/* endpoints: GET /push/vapid-public-key (no auth), POST /push/subscribe (auth, body {endpoint, keys: {p256dh, auth}}), DELETE /push/unsubscribe?endpoint=X (auth), POST /push/test (auth).",
+  "rca_of_the_issue": "N/A — no bugs encountered. The transient 'manifest link missing in served HTML' was due to CRA dev server caching an older template; cleared by restarting frontend supervisor."
+}

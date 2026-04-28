@@ -1,6 +1,7 @@
 {
   "short_name": "ShelfWise",
   "name": "ShelfWise — Stock & Expiry Tracker",
+  "description": "Track stock and expiry for any retail business. Scan receipts, get alerts before items expire.",
   "icons": [
     {
       "src": "favicon.ico",
@@ -8,8 +9,11 @@
       "type": "image/x-icon"
     }
   ],
-  "start_url": ".",
+  "start_url": "/",
+  "scope": "/",
   "display": "standalone",
+  "orientation": "portrait",
   "theme_color": "#13524a",
-  "background_color": "#f6f4ee"
+  "background_color": "#f6f4ee",
+  "categories": ["business", "productivity", "shopping"]
 }

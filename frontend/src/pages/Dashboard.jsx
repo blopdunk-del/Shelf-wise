@@ -6,6 +6,7 @@ import { Card, CardContent } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { AlertTriangle, Calendar, Package, Plus, ScanLine, BadgeCheck, Bell } from "lucide-react";
 import { toast } from "sonner";
+import PwaBanners from "../components/app/PwaBanners";
 
 const StatCard = ({ icon: Icon, label, value, accent, testid }) => (
   <Card data-testid={testid} className="surface-card fade-in-up">
@@ -71,6 +72,8 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       )}
+
+      <PwaBanners />
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatCard testid="stat-total" icon={Package} label="Total" value={stats?.total ?? "-"} accent="bg-primary/10 text-primary" />

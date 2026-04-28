@@ -352,6 +352,120 @@ def test_membership_status_premium_far_expiry(admin_token):
         mc.close()
 
 
+# ============ push notifications (NEW endpoints) ============
+def test_push_vapid_public_key_no_auth_required():
+    """GET /api/push/vapid-public-key returns a non-empty URL-safe base64 string (87+ chars typical)."""
+    r = requests.get(f"{BASE_URL}/api/push/vapid-public-key")
+    assert r.status_code == 200, r.text
+    j = r.json()
+    assert "public_key" in j
+    pk = j["public_key"]
+    assert isinstance(pk, str) and len(pk) >= 80, f"VAPID public key too short or empty: '{pk}'"
+    # URL-safe base64 (no '+', '/', '=' typically)
+    assert all(c.isalnum() or c in "-_" for c in pk), f"non URL-safe chars in '{pk}'"
+
+
+def test_push_subscribe_requires_auth():
+    sub = {
+        "endpoint": f"https://fcm.googleapis.com/fcm/send/test-{uuid.uuid4().hex}",
+        "keys": {"p256dh": "BNcRdreALR" + "x" * 70, "auth": "tBHIt" + "y" * 18},
+    }
+    r = requests.post(f"{BASE_URL}/api/push/subscribe", json=sub)
+    assert r.status_code in (401, 403), r.text
+
+
+def test_push_subscribe_invalid_keys_400(admin_token):
+    """Missing keys or empty endpoint must return 400."""
+    # Empty keys
+    r = requests.post(
+        f"{BASE_URL}/api/push/subscribe",
+        json={"endpoint": "https://fcm.googleapis.com/fcm/send/x", "keys": {}},
+        headers=H(admin_token),
+    )
+    assert r.status_code == 400, r.text
+    assert "invalid" in r.text.lower()
+
+    # Missing 'auth'
+    r = requests.post(
+        f"{BASE_URL}/api/push/subscribe",
+        json={"endpoint": "https://fcm.googleapis.com/fcm/send/x", "keys": {"p256dh": "abc"}},
+        headers=H(admin_token),
+    )
+    assert r.status_code == 400
+
+
+def test_push_subscribe_idempotent_and_unsubscribe(admin_token):
+    """Same endpoint twice = single doc; unsubscribe removes it."""
+    endpoint = f"https://fcm.googleapis.com/fcm/send/test-{uuid.uuid4().hex}"
+    sub = {
+        "endpoint": endpoint,
+        "keys": {
+            "p256dh": "BNcRdreALR" + "x" * 70,
+            "auth": "tBHItJI5svbpez7K" + "y" * 6,
+        },
+    }
+    # Subscribe twice
+    r1 = requests.post(f"{BASE_URL}/api/push/subscribe", json=sub, headers=H(admin_token))
+    assert r1.status_code == 200, r1.text
+    assert r1.json().get("ok") is True
+
+    r2 = requests.post(f"{BASE_URL}/api/push/subscribe", json=sub, headers=H(admin_token))
+    assert r2.status_code == 200
+
+    # Verify only one doc exists in mongo
+    from pymongo import MongoClient
+    mc = MongoClient(os.environ.get("MONGO_URL"))
+    mdb = mc[os.environ.get("DB_NAME")]
+    try:
+        count = mdb.push_subscriptions.count_documents({"endpoint": endpoint})
+        assert count == 1, f"expected 1 doc after idempotent upsert, got {count}"
+    finally:
+        mc.close()
+
+    # Unsubscribe via API
+    r3 = requests.delete(
+        f"{BASE_URL}/api/push/unsubscribe",
+        params={"endpoint": endpoint},
+        headers=H(admin_token),
+    )
+    assert r3.status_code == 200, r3.text
+
+    # Verify removed
+    mc = MongoClient(os.environ.get("MONGO_URL"))
+    mdb = mc[os.environ.get("DB_NAME")]
+    try:
+        count = mdb.push_subscriptions.count_documents({"endpoint": endpoint})
+        assert count == 0, "subscription not removed after unsubscribe"
+    finally:
+        mc.close()
+
+
+def test_push_test_endpoint_does_not_crash(admin_token):
+    """POST /api/push/test should return 200 even when subs fail at the vendor (graceful handling)."""
+    # Subscribe a fake endpoint first so the loop has something to iterate
+    endpoint = f"https://fcm.googleapis.com/fcm/send/test-{uuid.uuid4().hex}"
+    sub = {
+        "endpoint": endpoint,
+        "keys": {
+            "p256dh": "BNcRdreALR" + "x" * 70,
+            "auth": "tBHItJI5svbpez7K" + "y" * 6,
+        },
+    }
+    rs = requests.post(f"{BASE_URL}/api/push/subscribe", json=sub, headers=H(admin_token))
+    assert rs.status_code == 200
+    try:
+        r = requests.post(f"{BASE_URL}/api/push/test", headers=H(admin_token), timeout=30)
+        # Must not crash — vendor delivery may fail silently
+        assert r.status_code == 200, r.text
+        assert r.json().get("ok") is True
+    finally:
+        requests.delete(
+            f"{BASE_URL}/api/push/unsubscribe",
+            params={"endpoint": endpoint},
+            headers=H(admin_token),
+        )
+
+
 # ============ alerts (NEW endpoints with item details) ============
 def test_alerts_recent_returns_items_array(free_user_token):
     r = requests.get(f"{BASE_URL}/api/alerts/recent", headers=H(free_user_token))

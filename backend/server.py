@@ -535,7 +535,86 @@ async def admin_stats(admin: dict = Depends(require_admin)):
     }
 
 
-# =================== ALERTS BACKGROUND (in-app only) ===================
+# =================== ALERTS BACKGROUND (in-app + web push) ===================
+from pywebpush import webpush, WebPushException
+import json as _json
+
+VAPID_PUBLIC = os.environ.get("VAPID_PUBLIC_KEY", "")
+VAPID_PRIVATE_PEM = os.environ.get("VAPID_PRIVATE_KEY_PEM", "").replace("\\n", "\n")
+VAPID_SUBJECT = os.environ.get("VAPID_SUBJECT", "mailto:admin@medstore.com")
+
+
+async def send_push_to_user(user_id: str, title: str, body: str, url: str = "/"):
+    """Send a Web Push notification to every registered subscription for the user.
+    Removes subscriptions that return 404/410 (expired)."""
+    if not VAPID_PRIVATE_PEM:
+        return
+    subs = await db.push_subscriptions.find({"user_id": user_id}, {"_id": 0}).to_list(50)
+    payload = _json.dumps({"title": title, "body": body, "url": url})
+    for s in subs:
+        try:
+            webpush(
+                subscription_info={"endpoint": s["endpoint"], "keys": s["keys"]},
+                data=payload,
+                vapid_private_key=VAPID_PRIVATE_PEM,
+                vapid_claims={"sub": VAPID_SUBJECT},
+            )
+        except WebPushException as e:
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            if status in (404, 410):
+                await db.push_subscriptions.delete_one({"endpoint": s["endpoint"]})
+            else:
+                logger.warning(f"webpush failed: {e}")
+        except Exception as e:
+            logger.warning(f"webpush error: {e}")
+
+
+class PushSubscribe(BaseModel):
+    endpoint: str
+    keys: dict  # {"p256dh": "...", "auth": "..."}
+
+
+@api_router.get("/push/vapid-public-key")
+async def push_vapid_key():
+    return {"public_key": VAPID_PUBLIC}
+
+
+@api_router.post("/push/subscribe")
+async def push_subscribe(sub: PushSubscribe, user: dict = Depends(get_current_user)):
+    if not sub.endpoint or "p256dh" not in sub.keys or "auth" not in sub.keys:
+        raise HTTPException(status_code=400, detail="Invalid subscription")
+    # Upsert by endpoint to avoid duplicates per device
+    await db.push_subscriptions.update_one(
+        {"endpoint": sub.endpoint},
+        {"$set": {
+            "user_id": user["id"],
+            "endpoint": sub.endpoint,
+            "keys": sub.keys,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }},
+        upsert=True,
+    )
+    return {"ok": True}
+
+
+@api_router.delete("/push/unsubscribe")
+async def push_unsubscribe(endpoint: str, user: dict = Depends(get_current_user)):
+    await db.push_subscriptions.delete_one({"user_id": user["id"], "endpoint": endpoint})
+    return {"ok": True}
+
+
+@api_router.post("/push/test")
+async def push_test(user: dict = Depends(get_current_user)):
+    """Trigger a test push to verify the user's device is subscribed correctly."""
+    await send_push_to_user(
+        user["id"],
+        "ShelfWise notifications enabled",
+        "You'll get expiry & renewal alerts here from now on. 🔔",
+        "/",
+    )
+    return {"ok": True}
+
+
 def _summarize_items(items):
     """Build a brief text summary list (bullet lines) for emails / logs."""
     out = []
@@ -588,6 +667,18 @@ async def expiry_alert_loop():
                         "items": brief,
                         "sent_at": now.isoformat(),
                     })
+                    # Web push (best-effort, non-blocking)
+                    try:
+                        first = brief[0]
+                        more = f" + {len(brief) - 1} more" if len(brief) > 1 else ""
+                        await send_push_to_user(
+                            u["id"],
+                            f"{len(items)} item(s) expiring soon",
+                            f"{first['name']} (Batch {first['batch_number']}) on {first['expiry_date']}{more}",
+                            "/",
+                        )
+                    except Exception as e:
+                        logger.warning(f"push send (item) failed: {e}")
 
                 # 2) Membership renewal reminder (5 days before expiry, but not for admins)
                 if not u.get("is_admin") and u.get("premium_expires_at"):
@@ -618,6 +709,15 @@ async def expiry_alert_loop():
                                 "expires_at": exp_dt.isoformat(),
                                 "sent_at": now.isoformat(),
                             })
+                            try:
+                                await send_push_to_user(
+                                    u["id"],
+                                    f"Premium expires in {days_left}d",
+                                    "Renew ₹600 in the app to keep tracking your stock.",
+                                    "/membership",
+                                )
+                            except Exception as e:
+                                logger.warning(f"push send (renewal) failed: {e}")
         except Exception as e:
             logger.exception(f"Alert loop error: {e}")
         await asyncio.sleep(60 * 60 * 24)
