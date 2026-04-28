@@ -644,12 +644,28 @@ async def expiry_alert_loop():
             now = datetime.now(timezone.utc)
             end = (today + timedelta(days=10)).isoformat()
             users = await db.users.find({}, {"_id": 0}).to_list(5000)
+
+            # Single aggregation: group all medicines expiring in the next 10 days by user_id
+            # Replaces the previous N+1 pattern (one find() per user) with a single pipeline.
+            pipeline = [
+                {"$match": {"expiry_date": {"$gte": today.isoformat(), "$lte": end}}},
+                {"$project": {
+                    "_id": 0,
+                    "user_id": 1,
+                    "name": 1,
+                    "batch_number": 1,
+                    "quantity": 1,
+                    "expiry_date": 1,
+                }},
+                {"$group": {"_id": "$user_id", "items": {"$push": "$$ROOT"}}},
+            ]
+            items_by_user = {}
+            async for doc in db.medicines.aggregate(pipeline):
+                items_by_user[doc["_id"]] = doc["items"]
+
             for u in users:
                 # 1) Item expiry alerts
-                items = await db.medicines.find({
-                    "user_id": u["id"],
-                    "expiry_date": {"$gte": today.isoformat(), "$lte": end},
-                }, {"_id": 0}).to_list(500)
+                items = items_by_user.get(u["id"], [])
                 if items:
                     brief = [
                         {
