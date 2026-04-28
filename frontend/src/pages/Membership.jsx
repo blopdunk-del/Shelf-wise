@@ -82,8 +82,8 @@ export default function Membership() {
             <Clock className="w-4 h-4 text-primary mt-0.5 shrink-0" />
             <div>
               <span className="font-semibold">Premium activates within 30 minutes</span> of admin verifying your payment.
-              Membership is <span className="font-semibold">manual monthly renewal</span> — we'll remind you 5 days before
-              expiry with a one-tap UPI link. Admin manually approves every payment.
+              Membership is <span className="font-semibold">manual monthly renewal</span> — we'll show an in-app reminder
+              5 days before expiry. Admin manually approves every payment.
             </div>
           </div>
         </CardContent>

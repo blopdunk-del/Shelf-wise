@@ -132,31 +132,47 @@ export default function Dashboard() {
             <span className="text-xs text-muted-foreground">{recent.length} sent</span>
           </div>
           {recent.length === 0 ? (
-            <div className="text-sm text-muted-foreground py-6 text-center">No notifications yet. We'll alert you 10 days before any item expires.</div>
+            <div className="text-sm text-muted-foreground py-6 text-center">No notifications yet. We'll alert you 10 days before any item expires and 5 days before your membership renews.</div>
           ) : (
             <ul className="space-y-3" data-testid="recent-alerts">
-              {recent.slice(0, 5).map((a) => (
-                <li key={a.id} data-testid={`alert-${a.id}`} className="surface-cream p-3 rounded-lg">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="text-sm font-semibold">{a.count} item(s) expiring soon</div>
-                    <div className="text-xs text-muted-foreground">{new Date(a.sent_at).toLocaleString()}</div>
-                  </div>
-                  {a.items && a.items.length > 0 && (
-                    <ul className="space-y-1">
-                      {a.items.slice(0, 4).map((it, i) => {
-                        const d = daysUntil(it.expiry_date);
-                        return (
-                          <li key={i} className="text-xs flex items-center justify-between gap-2">
-                            <span className="truncate"><span className="font-semibold">{it.name}</span> <span className="mono text-muted-foreground">· {it.batch_number} · Qty {it.quantity}</span></span>
-                            <span className={`shrink-0 font-semibold ${d < 0 ? "text-destructive" : "text-accent"}`}>{it.expiry_date}{d>=0?` (${d}d)`:" (expired)"}</span>
-                          </li>
-                        );
-                      })}
-                      {a.items.length > 4 && <li className="text-xs text-muted-foreground">+ {a.items.length - 4} more</li>}
-                    </ul>
-                  )}
-                </li>
-              ))}
+              {recent.slice(0, 5).map((a) => {
+                if (a.type === "renewal_reminder") {
+                  return (
+                    <li key={a.id} data-testid={`alert-${a.id}`} className="surface-cream p-3 rounded-lg border-l-4 border-accent">
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="text-sm font-semibold text-accent">Membership renewal due</div>
+                        <div className="text-xs text-muted-foreground">{new Date(a.sent_at).toLocaleString()}</div>
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        Premium expires in {a.days_left} day{a.days_left === 1 ? "" : "s"}. Tap "Renew now" at the top to pay ₹600.
+                      </div>
+                    </li>
+                  );
+                }
+                // default: item_expiry
+                return (
+                  <li key={a.id} data-testid={`alert-${a.id}`} className="surface-cream p-3 rounded-lg">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="text-sm font-semibold">{a.count} item(s) expiring soon</div>
+                      <div className="text-xs text-muted-foreground">{new Date(a.sent_at).toLocaleString()}</div>
+                    </div>
+                    {a.items && a.items.length > 0 && (
+                      <ul className="space-y-1">
+                        {a.items.slice(0, 4).map((it, i) => {
+                          const d = daysUntil(it.expiry_date);
+                          return (
+                            <li key={i} className="text-xs flex items-center justify-between gap-2">
+                              <span className="truncate"><span className="font-semibold">{it.name}</span> <span className="mono text-muted-foreground">· {it.batch_number} · Qty {it.quantity}</span></span>
+                              <span className={`shrink-0 font-semibold ${d < 0 ? "text-destructive" : "text-accent"}`}>{it.expiry_date}{d>=0?` (${d}d)`:" (expired)"}</span>
+                            </li>
+                          );
+                        })}
+                        {a.items.length > 4 && <li className="text-xs text-muted-foreground">+ {a.items.length - 4} more</li>}
+                      </ul>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           )}
         </CardContent>
