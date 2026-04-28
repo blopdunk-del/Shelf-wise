@@ -36,9 +36,18 @@ Mobile-first web app (PWA) for retailers to track stock from purchase receipts a
 - **Per-item notifications**: alerts collection now stores name/batch/qty/expiry per item; dashboard "Recent notifications" lists each item line-by-line
 - **`/api/alerts/live`** endpoint returns currently-expiring items for in-app display
 
+### Iter 3 (2026-04-28) — Smart manual renewal + 30-min SLA
+- **Manual monthly renewal** (per user choice "Option B"): no payment gateway, keeps existing UPI QR
+- **`/api/membership/status`** endpoint returns `is_premium`, `days_left`, `needs_renewal`, `activation_sla_minutes=30`
+- **Top-of-app `<RenewalBanner>`** appears for premium users with ≤5 days remaining → "Premium expires in N days — Renew now" button → /membership (admin never sees banner)
+- **Membership SLA card**: "Premium activates within 30 minutes of admin verifying your payment. Manual monthly renewal — admin manually approves every payment."
+- **Background renewal reminders**: daily loop now also emails users 0–5 days before expiry (with 20h dedupe), saves to alerts collection with `type='renewal_reminder'`
+- Admin still manually approves every payment (confirmed) — approve auto-extends premium 30d from current expiry (stacks correctly for renewals)
+
 ## Verified
 - Iter 1: Backend 15/15 + Frontend = 100%
 - Iter 2: Backend 18/18 + Frontend = 100%
+- Iter 3: Backend 22/22 + Frontend = 100%
 
 ## Backlog
 - P1: Configure real SMTP (`SMTP_HOST/USER/PASSWORD`) → real email delivery
