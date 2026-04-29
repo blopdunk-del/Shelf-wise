@@ -83,11 +83,6 @@ export default function Login() {
             </p>
           </CardContent>
         </Card>
-
-        <div className="mt-6 surface-cream p-4 text-xs text-muted-foreground">
-          <div className="font-semibold text-foreground mb-1">Admin demo</div>
-          admin@medstore.com / Admin@12345 (auto-seeded)
-        </div>
       </div>
     </div>
   );
